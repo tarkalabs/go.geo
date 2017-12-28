@@ -295,6 +295,43 @@ func (q *Quadtree) FindKNearestMatching(p *geo.Point, k int, f Filter, maxDistan
 	return result
 }
 
+// FindKNearestMatchingGeo returns k closest Value/Pointer in the quadtree for which
+// the given filter function returns true. This function is thread safe.
+// Multiple goroutines can read from a pre-created tree.
+// This function allows defining a maximum distance in meters in order to reduce search iterations.
+// Unlike its cousin FindKNearestMatching which uses squared euclidean distance,
+// the geo variant takes the actual geo distance in meters
+func (q *Quadtree) FindKNearestMatchingGeo(p *geo.Point, k int, f Filter, maxDistance ...float64) []geo.Pointer {
+	if q.root == nil {
+		return nil
+	}
+
+	v := &nearestVisitorGeo{
+		point:        p,
+		filter:       f,
+		k:            k,
+		closest:      newPointsQueue(k),
+		closestBound: q.bound.Clone(),
+		distance:     math.MaxFloat64,
+	}
+
+	if len(maxDistance) > 0 {
+		v.distance = maxDistance[0]
+	}
+
+	newVisit(v).Visit(q.root,
+		q.bound.Left(), q.bound.Right(),
+		q.bound.Bottom(), q.bound.Top(),
+	)
+
+	//repack result
+	result := make([]geo.Pointer, 0, k)
+	for _, element := range v.closest {
+		result = append(result, element.point)
+	}
+	return result
+}
+
 // InBound returns a slice with all the pointers in the quadtree that are
 // within the given bound. An optional buffer parameter is provided to allow
 // for the reuse of result slice memory. This function is thread safe.
@@ -499,6 +536,49 @@ func (v *nearestVisitor) Visit(p geo.Pointer) {
 			top := v.closest[0]
 
 			v.maxDistSquared = top.distance
+
+			// We have filled queue, so we start to restrict searching range
+			d = math.Sqrt(top.distance)
+			x := v.point.X()
+			y := v.point.Y()
+			v.closestBound.Set(x-d, x+d, y-d, y+d)
+		}
+	}
+}
+
+type nearestVisitorGeo struct {
+	point        *geo.Point
+	filter       Filter
+	k            int
+	closest      pointsQueue
+	closestBound *geo.Bound
+	distance     float64
+}
+
+func (v *nearestVisitorGeo) Bound() *geo.Bound {
+	return v.closestBound
+}
+
+func (v *nearestVisitorGeo) Point() *geo.Point {
+	return v.point
+}
+
+func (v *nearestVisitorGeo) Visit(p geo.Pointer) {
+	// skip this pointer if we have a filter and it doesn't match
+	if v.filter != nil && !v.filter(p) {
+		return
+	}
+
+	point := p.Point()
+	if d := point.GeoDistanceFrom(v.point); d < v.distance {
+		heap.Push(&v.closest, pointsQueueItem{point: p, distance: d})
+		if v.closest.Len() > v.k {
+			heap.Pop(&v.closest)
+
+			// Actually this is a hack. We know how heap works and obtain top element without function call
+			top := v.closest[0]
+
+			v.distance = top.distance
 
 			// We have filled queue, so we start to restrict searching range
 			d = math.Sqrt(top.distance)

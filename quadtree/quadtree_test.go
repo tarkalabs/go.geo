@@ -237,6 +237,66 @@ func TestQuadtreeFindKNearestWithDistanceLimit(t *testing.T) {
 	}
 
 }
+func TestQuadtreeFindKNearestWithDistanceLimitWithGeo(t *testing.T) {
+	type dataPointer struct {
+		geo.Pointer
+		visible bool
+	}
+	origin := geo.NewPoint(13.0363126, 80.21640930000001) // tarkalabs
+	mansukh := geo.NewPoint(13.0353752, 80.21635130000004)
+	sedin := geo.NewPoint(13.036907, 80.21654179999996)
+	ibaco := geo.NewPoint(13.0373853, 80.21492999999998)
+	hsb := geo.NewPoint(13.0348444, 80.21273589999998)
+	forum := geo.NewPoint(13.0504652, 80.20964750000007)
+	poi := geo.NewPoint(12.8966044, 80.20511239999996)
+	q := NewFromPointers([]geo.Pointer{
+		dataPointer{mansukh, false}, // mansukh
+		dataPointer{sedin, false},   // sedin
+		dataPointer{ibaco, true},    // ibaco
+		dataPointer{hsb, true},      // hsb
+		dataPointer{forum, true},    // forum
+		dataPointer{poi, true},      // place_of_interest
+	})
+
+	// filters
+	filters := map[bool]Filter{
+		false: nil,
+		true:  func(p geo.Pointer) bool { return p.(dataPointer).visible },
+	}
+
+	// table test
+	type findTest struct {
+		Filtered bool
+		Distance float64
+		Point    *geo.Point
+		Expected []*geo.Point
+	}
+
+	tests := []findTest{
+		{Filtered: false, Distance: 500, Point: origin, Expected: []*geo.Point{mansukh, sedin, ibaco, hsb}},
+		{Filtered: true, Distance: 500, Point: origin, Expected: []*geo.Point{ibaco, hsb}},
+	}
+
+	for i, test := range tests {
+		v := q.FindKNearestMatchingGeo(test.Point, 10, filters[test.Filtered], test.Distance)
+		if len(v) != len(test.Expected) {
+			t.Errorf("incorrect response length on %d", i)
+		}
+		for _, answer := range v {
+			found := false
+			for _, expected := range test.Expected {
+				if answer.Point().Equals(expected) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("incorrect point on %d, got %v", i, v)
+			}
+		}
+	}
+
+}
 
 func TestQuadtreeInBoundRandom(t *testing.T) {
 	r := rand.New(rand.NewSource(43))
