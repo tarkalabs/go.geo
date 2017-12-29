@@ -581,10 +581,9 @@ func (v *nearestVisitorGeo) Visit(p geo.Pointer) {
 			v.distance = top.distance
 
 			// We have filled queue, so we start to restrict searching range
-			d = math.Sqrt(top.distance)
 			x := v.point.X()
 			y := v.point.Y()
-			v.closestBound.Set(x-d, x+d, y-d, y+d)
+			v.closestBound.Set(x-v.distance, x+v.distance, y-v.distance, y+v.distance)
 		}
 	}
 }
